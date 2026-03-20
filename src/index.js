@@ -14,8 +14,61 @@ function replaceVariables(value) {
   return value;
 }
 
+function buildAssertionTestScript(assertions) {
+  if (!Array.isArray(assertions) || assertions.length === 0) {
+    return null;
+  }
+
+  const lines = [];
+  assertions.forEach((assertion) => {
+    const subject = assertion.subject;
+    const path = assertion.path;
+    const comparison = assertion.comparison;
+    const value = assertion.value;
+
+    if (subject === "ResponseStatus" && path === "code" && comparison === "Equals") {
+      const statusCode = parseInt(value, 10);
+      if (!isNaN(statusCode)) {
+        lines.push(
+          `pm.test("Status code is ${statusCode}", function () { pm.response.to.have.status(${statusCode}); });`
+        );
+      } else {
+        lines.push(
+          `// Unsupported assertion: subject=${subject}, path=${path}, comparison=${comparison}, value=${value}`
+        );
+      }
+    } else {
+      lines.push(
+        `// Unsupported assertion: subject=${subject}, path=${path}, comparison=${comparison}, value=${value}`
+      );
+    }
+  });
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  return {
+    listen: "test",
+    script: {
+      type: "text/javascript",
+      exec: lines
+    }
+  };
+}
+
+function buildPostmanQuery(uri) {
+  const queryItems = uri?.query?.items || [];
+  return queryItems
+    .filter((q) => q.enabled !== false)
+    .map((q) => ({
+      key: replaceVariables(q.name),
+      value: replaceVariables(q.value)
+    }));
+}
+
 function talendRequestToPostmanItem(talendRequest) {
-  const { id, name, method, headers, uri, body } = talendRequest;
+  const { id, name, method, headers, uri, body, assertions } = talendRequest;
 
   const postmanMethod = method?.name || "GET";
 
@@ -26,6 +79,15 @@ function talendRequestToPostmanItem(talendRequest) {
   let rawUrl = `${scheme}://${host}`;
   if (trimmedPath) {
     rawUrl += `/${trimmedPath}`;
+  }
+
+  const postmanQuery = buildPostmanQuery(uri);
+
+  if (postmanQuery.length > 0) {
+    const queryString = postmanQuery
+      .map((q) => `${encodeURIComponent(q.key)}=${encodeURIComponent(q.value)}`)
+      .join("&");
+    rawUrl += `?${queryString}`;
   }
 
   const [hostWithoutPort, portMaybe] = host.split(":");
@@ -39,6 +101,10 @@ function talendRequestToPostmanItem(talendRequest) {
 
   if (portMaybe) {
     postmanUrl.port = portMaybe;
+  }
+
+  if (postmanQuery.length > 0) {
+    postmanUrl.query = postmanQuery;
   }
 
   const postmanHeaders = [];
@@ -100,7 +166,7 @@ function talendRequestToPostmanItem(talendRequest) {
     }
   }
 
-  return {
+  const item = {
     name: name || `Request ${id}`,
     request: {
       method: postmanMethod,
@@ -110,6 +176,13 @@ function talendRequestToPostmanItem(talendRequest) {
     },
     response: []
   };
+
+  const testEvent = buildAssertionTestScript(assertions);
+  if (testEvent) {
+    item.event = [testEvent];
+  }
+
+  return item;
 }
 
 function talendNodeToPostmanItem(node) {

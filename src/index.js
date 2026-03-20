@@ -111,23 +111,28 @@ function talendRequestToPostmanItem(talendRequest) {
   };
 }
 
-function talendServiceToPostmanFolder(serviceNode) {
-  const serviceEntity = serviceNode.entity;
-  const serviceName = serviceEntity.name || "Unnamed Service";
+function talendNodeToPostmanItem(node) {
+  if (!node || !node.entity) return null;
 
-  const items = [];
-  if (Array.isArray(serviceNode.children)) {
-    serviceNode.children.forEach((reqChild) => {
-      if (reqChild.entity && reqChild.entity.type === "Request") {
-        items.push(talendRequestToPostmanItem(reqChild.entity));
-      }
-    });
+  const { entity } = node;
+
+  if (entity.type === "Request") {
+    return talendRequestToPostmanItem(entity);
   }
 
+  const children = Array.isArray(node.children) ? node.children : [];
+  const childItems = children
+    .map((child) => talendNodeToPostmanItem(child))
+    .filter(Boolean);
+
   return {
-    name: serviceName,
-    item: items
+    name: entity.name || `Unnamed ${entity.type || "Folder"}`,
+    item: childItems
   };
+}
+
+function talendServiceToPostmanFolder(serviceNode) {
+  return talendNodeToPostmanItem(serviceNode);
 }
 
 function talendProjectToPostmanCollection(projectNode) {

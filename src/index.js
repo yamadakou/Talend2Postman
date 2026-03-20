@@ -4,6 +4,7 @@ const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
 
 const SCHEMA_V2_1 = "https://schema.getpostman.com/json/collection/v2.1.0/collection.json";
+const POSTMAN_VARIABLE_TYPE_DEFAULT = "default";
 
 
 function replaceVariables(value) {
@@ -167,6 +168,31 @@ function convertTalendToPostman(talendJson) {
     .map((project) => talendProjectToPostmanCollection(project));
 }
 
+function convertTalendEnvironmentToPostman(talendJson) {
+  const environments = talendJson.environments;
+  if (!Array.isArray(environments) || environments.length === 0) {
+    return [];
+  }
+
+  return environments.map((env) => {
+    const values = Object.values(env.variables || {}).map((v) => ({
+      key: v.name,
+      value: v.value !== undefined ? v.value : "",
+      enabled: v.enabled !== false,
+      type: POSTMAN_VARIABLE_TYPE_DEFAULT
+    }));
+
+    return {
+      id: env.id,
+      name: env.name,
+      values,
+      _postman_variable_scope: "environment",
+      _postman_exported_at: new Date().toISOString(),
+      _postman_exported_using: "Talend2Postman"
+    };
+  });
+}
+
 
 function main() {
   const args = process.argv.slice(2);
@@ -192,13 +218,18 @@ function main() {
     process.exit(1);
   }
 
-  const collections = convertTalendToPostman(talendData);
+  let results;
+  if (Array.isArray(talendData.environments)) {
+    results = convertTalendEnvironmentToPostman(talendData);
+  } else {
+    results = convertTalendToPostman(talendData);
+  }
 
   let outputJson;
-  if (collections.length === 1) {
-    outputJson = JSON.stringify(collections[0], null, 2);
+  if (results.length === 1) {
+    outputJson = JSON.stringify(results[0], null, 2);
   } else {
-    outputJson = JSON.stringify(collections, null, 2);
+    outputJson = JSON.stringify(results, null, 2);
   }
 
   try {
